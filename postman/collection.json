@@ -1,0 +1,300 @@
+{
+  "info": {
+    "name": "Auditoria - Pedidos de Parcelamento",
+    "description": "Contrato da API de auditoria de pedidos de parcelamento de dívida.\n\nFluxo: o POST registra o pedido, persiste em PostgreSQL e envia um evento estruturado ao Loki (push assíncrono). GETs consultam o banco.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "cpfExemplo",
+      "value": "12345678900"
+    }
+  ],
+  "item": [
+    {
+      "name": "Pedidos de Parcelamento",
+      "item": [
+        {
+          "name": "Criar pedido de parcelamento",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Usuario", "value": "operador.analista" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cpf\": \"12345678900\",\n  \"nome\": \"Maria da Silva\",\n  \"tipo\": \"RENEGOCIACAO\",\n  \"valorTotal\": 4500.00,\n  \"dataPedido\": \"2026-11-04T10:30:00Z\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/pedidos-parcelamento",
+            "description": "Registra um pedido de parcelamento. O header `X-Usuario` identifica quem registrou (auditoria). Sem `dataPedido`, usa o horário atual."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status é 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Retorna id gerado', () => pm.expect(pm.response.json().id).to.be.a('number'));",
+                  "pm.test('CPF persistido', () => pm.expect(pm.response.json().cpf).to.eql('12345678900'));",
+                  "pm.test('Usuário da auditoria registrado', () => pm.expect(pm.response.json().usuario).to.eql('operador.analista'));",
+                  "pm.collectionVariables.set('pedidoId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Criar pedido com dados inválidos",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cpf\": \"123\",\n  \"nome\": \"\",\n  \"tipo\": \"RENEGOCIACAO\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/pedidos-parcelamento",
+            "description": "CPF com menos de 11 dígitos e nome em branco devem ser rejeitados."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status é 400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Criar pedido com tipo desconhecido",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cpf\": \"12345678900\",\n  \"nome\": \"Maria da Silva\",\n  \"tipo\": \"TIPO_INEXISTENTE\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/api/pedidos-parcelamento",
+            "description": "Enum inválido deve ser rejeitado pelo parser JSON."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status é 400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consultar pedido por id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/pedidos-parcelamento/{{pedidoId}}",
+            "description": "Usa o `pedidoId` salvo pelo request anterior. Rode a coleção em ordem (runner) ou dispare o POST antes."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status é 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Body tem os campos de auditoria', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.all.keys('id', 'cpf', 'nome', 'tipo', 'valorTotal', 'dataPedido', 'usuario');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consultar pedido inexistente",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/pedidos-parcelamento/999999999"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status é 404 Not Found', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar pedidos filtrando por CPF",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pedidos-parcelamento?cpf={{cpfExemplo}}&page=0&size=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pedidos-parcelamento"],
+              "query": [
+                { "key": "cpf", "value": "{{cpfExemplo}}" },
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "10" }
+              ]
+            },
+            "description": "O CPF é normalizado (só dígitos) antes da consulta."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status é 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Possui total, page, size e items', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.all.keys('total', 'page', 'size', 'items');",
+                  "  pm.expect(body.items).to.be.an('array');",
+                  "  pm.expect(body.total).to.be.at.least(1);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar pedidos filtrando por tipo e período",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pedidos-parcelamento?tipo=RENEGOCIACAO&de=2026-01-01&ate=2026-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pedidos-parcelamento"],
+              "query": [
+                { "key": "tipo", "value": "RENEGOCIACAO" },
+                { "key": "de", "value": "2026-01-01" },
+                { "key": "ate", "value": "2026-12-31" }
+              ]
+            },
+            "description": "`de`/`ate` são datas (YYYY-MM-DD), ambas inclusivas."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status é 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Todos os itens são do tipo filtrado', () => {",
+                  "  pm.response.json().items.forEach(i => pm.expect(i.tipo).to.eql('RENEGOCIACAO'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar todos os pedidos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/pedidos-parcelamento"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status é 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Retorna paginação padrão (20 itens)', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.size).to.eql(20);",
+                  "  pm.expect(body.items.length).to.be.at.most(20);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Observabilidade (Loki/Grafana)",
+      "item": [
+        {
+          "name": "Loki ready",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "http://localhost:3100/ready",
+            "description": "Verifica se o Loki está aceitando push/query."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Loki pronto', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Query Loki - eventos de auditoria",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:3100/loki/api/v1/query_range?query={job=\"auditoria\"}&limit=5",
+              "host": ["http://localhost:3100"],
+              "path": ["loki", "api", "v1", "query_range"],
+              "query": [
+                { "key": "query", "value": "{job=\"auditoria\"}" },
+                { "key": "limit", "value": "5" }
+              ]
+            },
+            "description": "Retorna os últimos eventos de auditoria enviados pela aplicação."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status é 200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Possui streams de resultado', () => {",
+                  "  pm.expect(pm.response.json().data.result).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
