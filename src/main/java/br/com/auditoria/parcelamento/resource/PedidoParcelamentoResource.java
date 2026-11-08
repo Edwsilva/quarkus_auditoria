@@ -5,6 +5,7 @@ import br.com.auditoria.parcelamento.dto.PedidoParcelamentoRequest;
 import br.com.auditoria.parcelamento.dto.PedidoParcelamentoResponse;
 import br.com.auditoria.parcelamento.model.TipoParcelamento;
 import br.com.auditoria.parcelamento.service.PedidoParcelamentoService;
+import io.smallrye.common.annotation.Blocking;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
@@ -26,6 +27,7 @@ import java.time.LocalDate;
 @Path("/api/pedidos-parcelamento")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
+@Blocking
 public class PedidoParcelamentoResource {
 
     private final PedidoParcelamentoService service;

@@ -41,6 +41,7 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status é 201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('Retorna X-Trace-Id para investigação', () => pm.response.to.have.header('X-Trace-Id'));",
                   "pm.test('Retorna id gerado', () => pm.expect(pm.response.json().id).to.be.a('number'));",
                   "pm.test('CPF persistido', () => pm.expect(pm.response.json().cpf).to.eql('12345678900'));",
                   "pm.test('Usuário da auditoria registrado', () => pm.expect(pm.response.json().usuario).to.eql('operador.analista'));",

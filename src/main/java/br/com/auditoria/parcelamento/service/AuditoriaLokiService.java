@@ -1,5 +1,6 @@
 package br.com.auditoria.parcelamento.service;
 
+import br.com.auditoria.parcelamento.http.HttpAuditEvent;
 import br.com.auditoria.parcelamento.model.PedidoParcelamento;
 import io.quarkus.runtime.annotations.RegisterForReflection;
 import io.vertx.core.Vertx;
@@ -25,6 +26,7 @@ public class AuditoriaLokiService {
     private static final Logger LOG = Logger.getLogger(AuditoriaLokiService.class);
 
     static final String EVENTO_PEDIDO_CRIADO = "PEDIDO_PARCELAMENTO_CRIADO";
+    static final String EVENTO_HTTP_REQUEST = "HTTP_REQUEST";
 
     @Inject
     Vertx vertx;
@@ -67,14 +69,59 @@ public class AuditoriaLokiService {
             linha.put("valorTotal", pedido.valorTotal);
         }
 
+        pushLoki(job, EVENTO_PEDIDO_CRIADO, null, linha,
+                s -> LOG.warnf("Loki respondeu %d ao push de auditoria do pedido %d", s, pedido.id),
+                t -> LOG.warnf(t, "Falha ao enviar auditoria do pedido %d ao Loki (%s)", pedido.id, url));
+    }
+
+    public void requisicaoHttp(String jobHttp, HttpAuditEvent evento) {
+        if (!enabled) {
+            return;
+        }
+
+        JsonObject linha = new JsonObject()
+                .put("ts", Instant.now().toString())
+                .put("evento", EVENTO_HTTP_REQUEST)
+                .put("traceId", evento.traceId())
+                .put("metodo", evento.metodo())
+                .put("path", evento.path())
+                .put("status", evento.status())
+                .put("duracaoMs", evento.duracaoMs());
+
+        if (evento.usuario() != null && !evento.usuario().isBlank()) {
+            linha.put("usuario", evento.usuario());
+        }
+        if (evento.corpoRequest() != null) {
+            linha.put("requestBody", evento.corpoRequest());
+        }
+        if (evento.corpoResponse() != null) {
+            linha.put("responseBody", evento.corpoResponse());
+        }
+
+        pushLoki(jobHttp, EVENTO_HTTP_REQUEST, evento.statusClass(), linha,
+                s -> LOG.warnf("Loki respondeu %d ao push de HTTP %s %s traceId=%s",
+                        s, evento.metodo(), evento.path(), evento.traceId()),
+                t -> LOG.warnf(t, "Falha ao enviar auditoria HTTP traceId=%s ao Loki (%s)",
+                        evento.traceId(), url));
+    }
+
+    private void pushLoki(String jobLabel, String evento, String statusClass, JsonObject linha,
+           java.util.function.IntConsumer aoResponderComErro,
+            io.vertx.core.Handler<Throwable> aoFalhar) {
+
+        JsonObject stream = new JsonObject()
+                .put("job", jobLabel)
+                .put("app", app)
+                .put("evento", evento);
+        if (statusClass != null) {
+            stream.put("status_class", statusClass);
+        }
+
         long nanosEpoch = System.currentTimeMillis() * 1_000_000L;
 
         JsonObject payload = new JsonObject()
                 .put("streams", new JsonArray().add(new JsonObject()
-                        .put("stream", new JsonObject()
-                                .put("job", job)
-                                .put("app", app)
-                                .put("evento", EVENTO_PEDIDO_CRIADO))
+                        .put("stream", stream)
                         .put("values", new JsonArray()
                                 .add(new JsonArray().add(Long.toString(nanosEpoch)).add(linha.encode())))));
 
@@ -83,9 +130,9 @@ public class AuditoriaLokiService {
                 .sendJsonObject(payload)
                 .onSuccess(res -> {
                     if (res.statusCode() >= 300) {
-                        LOG.warnf("Loki respondeu %d ao push de auditoria do pedido %d", res.statusCode(), pedido.id);
+                        aoResponderComErro.accept(res.statusCode());
                     }
                 })
-                .onFailure(t -> LOG.warnf(t, "Falha ao enviar auditoria do pedido %d ao Loki (%s)", pedido.id, url));
+                .onFailure(aoFalhar);
     }
 }
