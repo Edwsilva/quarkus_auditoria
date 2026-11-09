@@ -4,6 +4,7 @@ import br.com.auditoria.parcelamento.dto.PedidoParcelamentoPage;
 import br.com.auditoria.parcelamento.dto.PedidoParcelamentoRequest;
 import br.com.auditoria.parcelamento.dto.PedidoParcelamentoResponse;
 import br.com.auditoria.parcelamento.model.TipoParcelamento;
+import br.com.auditoria.parcelamento.service.AuditoriaLokiService;
 import br.com.auditoria.parcelamento.service.PedidoParcelamentoService;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.BadRequestException;
@@ -16,6 +17,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriBuilder;
@@ -29,19 +31,29 @@ import java.time.LocalDate;
 public class PedidoParcelamentoResource {
 
     private final PedidoParcelamentoService service;
+    private final AuditoriaLokiService auditoria;
 
-    public PedidoParcelamentoResource(PedidoParcelamentoService service) {
+    public PedidoParcelamentoResource(PedidoParcelamentoService service, AuditoriaLokiService auditoria) {
         this.service = service;
+        this.auditoria = auditoria;
     }
 
     @POST
     public Response criar(@Valid PedidoParcelamentoRequest request,
             @HeaderParam("X-Usuario") String usuario) {
-        PedidoParcelamentoResponse response = service.criar(request, usuario);
-        URI location = UriBuilder.fromResource(PedidoParcelamentoResource.class)
-                .path("/{id}")
-                .build(response.id());
-        return Response.created(location).entity(response).build();
+        try {
+            PedidoParcelamentoResponse response = service.criar(request, usuario);
+            URI location = UriBuilder.fromResource(PedidoParcelamentoResource.class)
+                    .path("/{id}")
+                    .build(response.id());
+            return Response.created(location).entity(response).build();
+        } catch (WebApplicationException e) {
+            auditoria.erroNaCriacao(request, usuario, e.getResponse().getStatus(), e.getMessage());
+            throw e;
+        } catch (Exception e) {
+            auditoria.erroNaCriacao(request, usuario, 500, e.getMessage());
+            throw e;
+        }
     }
 
     @GET
